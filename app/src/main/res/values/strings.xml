@@ -16,4 +16,9 @@
     <string name="data_used">Data Transferred</string>
     <string name="free_banner_title">100% Free Forever</string>
     <string name="free_banner_desc">No subscriptions, no fees, no hidden costs. Unlimited bandwidth for everyone.</string>
+    <string name="live_graph_title">Real-Time Tunnel Traffic</string>
+    <string name="live_graph_active">LIVE STREAM</string>
+    <string name="live_graph_standby">STANDBY</string>
+    <string name="live_graph_peak">Peak</string>
+    <string name="live_graph_empty_hint">Connect VPN to stream live packet throughput from ParcelFileDescriptor</string>
 </resources>

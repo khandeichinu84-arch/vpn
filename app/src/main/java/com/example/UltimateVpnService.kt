@@ -14,11 +14,15 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.data.VpnRepository
 import com.example.model.ConnectionState
-import com.example.model.VpnStats
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import com.example.tunnel.TunnelTrafficMonitor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.IOException
 import java.nio.ByteBuffer
-import kotlin.random.Random
 
 class UltimateVpnService : VpnService(), Runnable {
 
@@ -32,6 +36,7 @@ class UltimateVpnService : VpnService(), Runnable {
 
         const val NOTIFICATION_CHANNEL_ID = "ultimate_vpn_channel"
         const val NOTIFICATION_ID = 1001
+        private const val TRAFFIC_SAMPLE_INTERVAL_MS = 1000L
 
         fun startVpn(
             context: Context,
@@ -60,8 +65,12 @@ class UltimateVpnService : VpnService(), Runnable {
         }
     }
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var monitorJob: Job? = null
     private var workerThread: Thread? = null
     private var tunnelInterface: ParcelFileDescriptor? = null
+    private var trafficMonitor: TunnelTrafficMonitor? = null
+
     @Volatile
     private var isServiceRunning = false
 
@@ -85,6 +94,7 @@ class UltimateVpnService : VpnService(), Runnable {
         secondaryDns = intent?.getStringExtra(EXTRA_SECONDARY_DNS) ?: VpnRepository.secondaryDnsInput.value
 
         workerThread?.interrupt()
+        monitorJob?.cancel()
         isServiceRunning = true
 
         // Display foreground service notification to comply with Android 8+ and 14+ FGS requirements
@@ -103,7 +113,7 @@ class UltimateVpnService : VpnService(), Runnable {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        workerThread = Thread(this)
+        workerThread = Thread(this, "UltimateVpnTunnelThread")
         workerThread?.start()
 
         return START_STICKY
@@ -149,62 +159,54 @@ class UltimateVpnService : VpnService(), Runnable {
 
             tunnelBuilder.setSession("UltimateWorldSession")
             tunnelBuilder.setBlocking(false)
-            tunnelInterface = tunnelBuilder.establish()
+            val pfd = tunnelBuilder.establish()
+            if (pfd == null) {
+                Log.e(TAG, "Failed to establish VPN ParcelFileDescriptor")
+                return
+            }
+            tunnelInterface = pfd
 
             Log.d(TAG, "VPN Tunnel established successfully for server IP: $serverIp")
             VpnRepository.setConnectionState(ConnectionState.CONNECTED)
 
-            val fileDescriptor = tunnelInterface?.fileDescriptor
-            if (fileDescriptor != null) {
-                val inputStream = FileInputStream(fileDescriptor)
-                val outputStream = FileOutputStream(fileDescriptor)
-                val packetBuffer = ByteBuffer.allocate(32767)
+            // Start reactive ParcelFileDescriptor data stream monitoring
+            val monitor = TunnelTrafficMonitor(pfd)
+            trafficMonitor = monitor
 
-                var duration = 0L
-                var totalBytesIn = 1024L * 256
-                var totalBytesOut = 1024L * 94
+            monitorJob?.cancel()
+            monitorJob = serviceScope.launch {
+                monitor.trafficFlow(TRAFFIC_SAMPLE_INTERVAL_MS).collect { snapshot ->
+                    val stats = snapshot.toVpnStats()
+                    VpnRepository.recordTrafficSample(stats, snapshot.toSpeedSample())
 
-                while (isServiceRunning && tunnelInterface != null) {
-                    var bytesReadThisCycle = 0L
-                    try {
-                        if (inputStream.available() > 0) {
-                            val length = inputStream.read(packetBuffer.array())
-                            if (length > 0) {
-                                bytesReadThisCycle += length
-                                packetBuffer.clear()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Non-blocking read pass
-                    }
-
-                    Thread.sleep(100)
-                    duration++
-
-                    val speedIn = if (bytesReadThisCycle > 0) bytesReadThisCycle * 10 else Random.nextLong(150_000, 2_200_000)
-                    val speedOut = Random.nextLong(40_000, 500_000)
-                    totalBytesIn += speedIn / 10
-                    totalBytesOut += speedOut / 10
-
-                    if (duration % 10L == 0L) {
-                        val currentStats = VpnStats(
-                            durationSeconds = duration / 10L,
-                            bytesIn = totalBytesIn,
-                            bytesOut = totalBytesOut,
-                            speedInBps = speedIn,
-                            speedOutBps = speedOut
-                        )
-                        VpnRepository.updateStats(currentStats)
-
-                        val serverName = VpnRepository.selectedServer.value.displayName
-                        updateNotification(
-                            "Protected: $serverName",
-                            "Connected: ${currentStats.formattedDuration()} • ${currentStats.formattedDownloadSpeed()} ↓"
-                        )
-                    }
+                    val serverName = VpnRepository.selectedServer.value.displayName
+                    updateNotification(
+                        "Protected: $serverName",
+                        "${stats.formattedDuration()} • ↓ ${stats.formattedDownloadSpeed()} • ↑ ${stats.formattedUploadSpeed()}"
+                    )
                 }
             }
 
+            val packetBuffer = ByteBuffer.allocate(32767)
+            val bufferArray = packetBuffer.array()
+
+            while (isServiceRunning && tunnelInterface != null) {
+                var bytesRead = 0
+                try {
+                    bytesRead = monitor.inputStream.read(bufferArray)
+                } catch (e: IOException) {
+                    // Non-blocking EAGAIN when TUN buffer has no pending outbound packet
+                    bytesRead = 0
+                }
+
+                if (bytesRead > 0) {
+                    packetBuffer.clear()
+                } else {
+                    Thread.sleep(50)
+                }
+            }
+        } catch (interrupted: InterruptedException) {
+            Log.d(TAG, "VPN tunnel worker thread interrupted for shutdown")
         } catch (exception: Exception) {
             Log.e(TAG, "VPN Tunnel Error: ${exception.message}", exception)
         } finally {
@@ -216,11 +218,17 @@ class UltimateVpnService : VpnService(), Runnable {
         isServiceRunning = false
         VpnRepository.setConnectionState(ConnectionState.DISCONNECTING)
 
+        monitorJob?.cancel()
+        monitorJob = null
+
+        runCatching { trafficMonitor?.close() }
+        trafficMonitor = null
+
         try {
             tunnelInterface?.close()
             tunnelInterface = null
         } catch (exception: Exception) {
-            exception.printStackTrace()
+            Log.e(TAG, "Error closing tunnel interface", exception)
         }
 
         VpnRepository.setConnectionState(ConnectionState.DISCONNECTED)
@@ -230,6 +238,7 @@ class UltimateVpnService : VpnService(), Runnable {
 
     override fun onDestroy() {
         shutdownVpnTunnel()
+        serviceScope.cancel()
         super.onDestroy()
     }
 

@@ -6,6 +6,7 @@ import com.example.model.AppInfo
 import com.example.model.ConnectionState
 import com.example.model.DnsOption
 import com.example.model.IpInfo
+import com.example.model.SpeedSample
 import com.example.model.SpeedTestResult
 import com.example.model.VpnProtocol
 import com.example.model.VpnServer
@@ -112,8 +113,13 @@ object VpnRepository {
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    private const val MAX_SPEED_HISTORY_POINTS = 30
+
     private val _stats = MutableStateFlow(VpnStats())
     val stats: StateFlow<VpnStats> = _stats.asStateFlow()
+
+    private val _speedHistory = MutableStateFlow<List<SpeedSample>>(emptyList())
+    val speedHistory: StateFlow<List<SpeedSample>> = _speedHistory.asStateFlow()
 
     private val _servers = MutableStateFlow(worldServers)
     val servers: StateFlow<List<VpnServer>> = _servers.asStateFlow()
@@ -199,6 +205,7 @@ object VpnRepository {
         _connectionState.value = state
         if (state == ConnectionState.DISCONNECTED) {
             _stats.value = VpnStats()
+            _speedHistory.value = emptyList()
             refreshIpInfo()
         } else if (state == ConnectionState.CONNECTED) {
             updateIpForConnectedServer(_selectedServer.value)
@@ -207,6 +214,18 @@ object VpnRepository {
 
     fun updateStats(stats: VpnStats) {
         _stats.value = stats
+    }
+
+    fun recordTrafficSample(stats: VpnStats, sample: SpeedSample) {
+        _stats.value = stats
+        val updated = (_speedHistory.value + sample).let { list ->
+            if (list.size > MAX_SPEED_HISTORY_POINTS) {
+                list.takeLast(MAX_SPEED_HISTORY_POINTS)
+            } else {
+                list
+            }
+        }
+        _speedHistory.value = updated
     }
 
     fun selectServer(server: VpnServer) {

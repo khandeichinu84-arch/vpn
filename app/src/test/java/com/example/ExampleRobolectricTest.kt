@@ -1,10 +1,16 @@
 package com.example
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.VpnRepository
 import com.example.model.ConnectionState
+import com.example.model.SpeedSample
 import com.example.model.VpnStats
+import com.example.tunnel.TunnelTrafficMonitor
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -73,5 +79,70 @@ class ExampleRobolectricTest {
     assertTrue("Should have UAE server", servers.any { it.country.contains("UAE") })
     assertTrue("Should have UK server", servers.any { it.country.contains("United Kingdom") })
     assertTrue("Should have USA server", servers.any { it.country.contains("USA") })
+  }
+
+  @Test
+  fun `verify ParcelFileDescriptor traffic monitor counts bytes sent and received and streams snapshots`() = runTest {
+    val pipe = ParcelFileDescriptor.createPipe()
+    val readPfd = pipe[0]
+    val writePfd = pipe[1]
+
+    val monitor = TunnelTrafficMonitor(readPfd = readPfd, writePfd = writePfd)
+    val payload = ByteArray(2048) { 0x42 }
+
+    // Write 2048 bytes into the ParcelFileDescriptor output stream (received/inbound)
+    monitor.outputStream.write(payload)
+    monitor.outputStream.flush()
+    assertEquals(2048L, monitor.bytesReceived)
+
+    // Read 2048 bytes back from the ParcelFileDescriptor input stream (sent/outbound)
+    val readBuffer = ByteArray(2048)
+    var totalRead = 0
+    while (totalRead < payload.size) {
+      val readNow = monitor.inputStream.read(readBuffer, totalRead, payload.size - totalRead)
+      if (readNow <= 0) break
+      totalRead += readNow
+    }
+    assertEquals(2048, totalRead)
+    assertEquals(2048L, monitor.bytesSent)
+
+    val snapshotJob = launch {
+      val snapshot = monitor.trafficFlow(sampleIntervalMs = 50L).first()
+      assertEquals(2048L, snapshot.totalBytesReceived)
+      assertEquals(2048L, snapshot.totalBytesSent)
+    }
+    snapshotJob.join()
+
+    monitor.close()
+    readPfd.close()
+    writePfd.close()
+  }
+
+  @Test
+  fun `verify speed history records sliding window and clears on disconnect`() {
+    VpnRepository.setConnectionState(ConnectionState.CONNECTED)
+    repeat(35) { index ->
+      val speed = (index + 1) * 1024L
+      val stats = VpnStats(
+        durationSeconds = index.toLong(),
+        bytesIn = speed * 2,
+        bytesOut = speed,
+        speedInBps = speed * 2,
+        speedOutBps = speed
+      )
+      val sample = SpeedSample(
+        timestampMs = 1000L + index,
+        downloadBytesPerSec = speed * 2,
+        uploadBytesPerSec = speed
+      )
+      VpnRepository.recordTrafficSample(stats, sample)
+    }
+
+    assertEquals(30, VpnRepository.speedHistory.value.size)
+    assertEquals(35 * 1024L, VpnRepository.speedHistory.value.last().uploadBytesPerSec)
+
+    VpnRepository.setConnectionState(ConnectionState.DISCONNECTED)
+    assertTrue(VpnRepository.speedHistory.value.isEmpty())
+    assertEquals(0L, VpnRepository.stats.value.bytesIn)
   }
 }

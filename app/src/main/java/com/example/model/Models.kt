@@ -46,6 +46,12 @@ data class VpnServer(
         get() = "$city, $country"
 }
 
+data class SpeedSample(
+    val timestampMs: Long,
+    val downloadBytesPerSec: Long,
+    val uploadBytesPerSec: Long
+)
+
 data class VpnStats(
     val durationSeconds: Long = 0L,
     val bytesIn: Long = 0L,
@@ -64,41 +70,36 @@ data class VpnStats(
         }
     }
 
-    fun formattedDownloadSpeed(): String {
-        val mbps = (speedInBps * 8.0) / (1024 * 1024)
-        return if (mbps >= 1.0) {
-            String.format(Locale.US, "%.1f Mbps", mbps)
-        } else {
-            val kbps = (speedInBps * 8.0) / 1024
-            String.format(Locale.US, "%.0f Kbps", kbps)
-        }
-    }
+    fun formattedDownloadSpeed(): String = formatSpeed(speedInBps)
 
-    fun formattedUploadSpeed(): String {
-        val mbps = (speedOutBps * 8.0) / (1024 * 1024)
-        return if (mbps >= 1.0) {
-            String.format(Locale.US, "%.1f Mbps", mbps)
-        } else {
-            val kbps = (speedOutBps * 8.0) / 1024
-            String.format(Locale.US, "%.0f Kbps", kbps)
-        }
-    }
+    fun formattedUploadSpeed(): String = formatSpeed(speedOutBps)
 
-    fun formattedDataIn(): String {
-        val mb = bytesIn / (1024.0 * 1024.0)
-        return if (mb >= 1024.0) {
-            String.format(Locale.US, "%.2f GB", mb / 1024.0)
-        } else {
-            String.format(Locale.US, "%.1f MB", mb)
-        }
-    }
+    fun formattedDataIn(): String = formatBytes(bytesIn)
 
-    fun formattedDataOut(): String {
-        val mb = bytesOut / (1024.0 * 1024.0)
-        return if (mb >= 1024.0) {
-            String.format(Locale.US, "%.2f GB", mb / 1024.0)
-        } else {
-            String.format(Locale.US, "%.1f MB", mb)
+    fun formattedDataOut(): String = formatBytes(bytesOut)
+
+    companion object {
+        fun formatSpeed(bytesPerSec: Long): String {
+            val safe = bytesPerSec.coerceAtLeast(0L)
+            val mbps = (safe * 8.0) / (1024.0 * 1024.0)
+            return if (mbps >= 1.0) {
+                String.format(Locale.US, "%.1f Mbps", mbps)
+            } else {
+                val kbps = (safe * 8.0) / 1024.0
+                String.format(Locale.US, "%.0f Kbps", kbps)
+            }
+        }
+
+        fun formatBytes(bytes: Long): String {
+            val safe = bytes.coerceAtLeast(0L)
+            val kb = safe / 1024.0
+            val mb = kb / 1024.0
+            return when {
+                mb >= 1024.0 -> String.format(Locale.US, "%.2f GB", mb / 1024.0)
+                mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
+                kb >= 1.0 -> String.format(Locale.US, "%.1f KB", kb)
+                else -> "$safe B"
+            }
         }
     }
 }

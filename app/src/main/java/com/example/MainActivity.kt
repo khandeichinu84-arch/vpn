@@ -104,6 +104,7 @@ fun MainAppContent() {
 
     val connectionState by VpnRepository.connectionState.collectAsStateWithLifecycle()
     val stats by VpnRepository.stats.collectAsStateWithLifecycle()
+    val speedHistory by VpnRepository.speedHistory.collectAsStateWithLifecycle()
     val servers by VpnRepository.servers.collectAsStateWithLifecycle()
     val selectedServer by VpnRepository.selectedServer.collectAsStateWithLifecycle()
     val selectedProtocol by VpnRepository.selectedProtocol.collectAsStateWithLifecycle()
@@ -314,6 +315,7 @@ fun MainAppContent() {
                     HomeScreen(
                         connectionState = connectionState,
                         stats = stats,
+                        speedHistory = speedHistory,
                         server = selectedServer,
                         servers = servers,
                         protocol = selectedProtocol,

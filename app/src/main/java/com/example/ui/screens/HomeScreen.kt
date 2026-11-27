@@ -73,9 +73,11 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.ConnectionState
 import com.example.model.IpInfo
+import com.example.model.SpeedSample
 import com.example.model.VpnProtocol
 import com.example.model.VpnServer
 import com.example.model.VpnStats
+import com.example.ui.components.SpeedProgressGraphCard
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CoralDanger
 import com.example.ui.theme.CyanGlow
@@ -87,6 +89,7 @@ import com.example.ui.theme.NeonEmerald
 fun HomeScreen(
     connectionState: ConnectionState,
     stats: VpnStats,
+    speedHistory: List<SpeedSample>,
     server: VpnServer,
     servers: List<VpnServer>,
     protocol: VpnProtocol,
@@ -724,6 +727,15 @@ fun HomeScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Real-Time Upload / Download Progress Graph
+        SpeedProgressGraphCard(
+            connectionState = connectionState,
+            stats = stats,
+            speedHistory = speedHistory
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
