@@ -1,0 +1,6 @@
+{
+  "name": "Ultimate World VPN",
+  "description": "Fast, secure, and 100% free unlimited VPN proxy client with global locations, real-time speed monitoring, ping latency tests, and connection encryption.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Ultimate World VPN</string>
+    <string name="tagline">Fast, Secure &amp; 100% Free Forever</string>
+    <string name="status_disconnected">Not Connected</string>
+    <string name="status_connecting">Connecting to Secure Tunnel…</string>
+    <string name="status_connected">Connected &amp; Protected</string>
+    <string name="status_disconnecting">Disconnecting…</string>
+    <string name="tap_to_connect">Tap to Connect</string>
+    <string name="tap_to_disconnect">Tap to Disconnect</string>
+    <string name="current_server">Selected Server</string>
+    <string name="choose_server">Choose Location</string>
+    <string name="speed_download">Download</string>
+    <string name="speed_upload">Upload</string>
+    <string name="ping">Ping</string>
+    <string name="session_duration">Session Time</string>
+    <string name="data_used">Data Transferred</string>
+    <string name="free_banner_title">100% Free Forever</string>
+    <string name="free_banner_desc">No subscriptions, no fees, no hidden costs. Unlimited bandwidth for everyone.</string>
+</resources>
